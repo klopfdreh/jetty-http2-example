@@ -2,6 +2,7 @@ package de.jetty.wicket.http2.example;
 
 import java.util.List;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.apache.wicket.Page;
@@ -34,6 +35,14 @@ public class PushHeaderItem extends HeaderItem
 	 */
 	public static final String HTTP2_PROTOCOL = "http/2";
 
+	/**
+	 * The token suffix to be used in this header item
+	 */
+	private static final String TOKEN_SUFFIX = HTTP2_PROTOCOL+"_pushed";
+	
+	/**
+	 * The URLs of resources to be pushed to the client
+	 */
 	private Set<String> urls = new ConcurrentHashSet<String>(new TreeSet<String>());
 
 	/**
@@ -42,7 +51,12 @@ public class PushHeaderItem extends HeaderItem
 	@Override
 	public Iterable<?> getRenderTokens()
 	{
-		return urls;
+		Set<String> tokens = new TreeSet<String>();
+		for (String url : urls)
+		{
+			tokens.add(url + TOKEN_SUFFIX);
+		}
+		return tokens;
 	}
 
 	/**
