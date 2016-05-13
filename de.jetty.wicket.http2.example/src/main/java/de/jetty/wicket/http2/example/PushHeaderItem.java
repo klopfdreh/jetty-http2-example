@@ -2,7 +2,6 @@ package de.jetty.wicket.http2.example;
 
 import java.util.List;
 import java.util.Set;
-import java.util.TreeMap;
 import java.util.TreeSet;
 
 import org.apache.wicket.Page;
@@ -38,8 +37,8 @@ public class PushHeaderItem extends HeaderItem
 	/**
 	 * The token suffix to be used in this header item
 	 */
-	private static final String TOKEN_SUFFIX = HTTP2_PROTOCOL+"_pushed";
-	
+	private static final String TOKEN_SUFFIX = HTTP2_PROTOCOL + "_pushed";
+
 	/**
 	 * The URLs of resources to be pushed to the client
 	 */
@@ -93,6 +92,7 @@ public class PushHeaderItem extends HeaderItem
 			{
 				Object object = pushItem.getObject();
 				PageParameters parameters = pushItem.getPageParameters();
+				String suffix = pushItem.getSuffix();
 
 				if (object == null)
 				{
@@ -125,6 +125,12 @@ public class PushHeaderItem extends HeaderItem
 				else if (url.toString().startsWith("."))
 				{
 					url = url.toString().substring(1);
+				}
+
+				if (suffix != null)
+				{
+					url = url.toString()
+						+ (url.toString().contains("?") ? "&" + suffix : "?" + suffix);
 				}
 
 				urls.add(url.toString());
