@@ -9,8 +9,10 @@ import org.apache.wicket.WicketRuntimeException;
 import org.apache.wicket.markup.head.HeaderItem;
 import org.apache.wicket.request.IRequestHandler;
 import org.apache.wicket.request.Response;
+import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.RequestCycle;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
+import org.apache.wicket.request.mapper.parameter.PageParametersEncoder;
 import org.apache.wicket.request.resource.ResourceReference;
 import org.apache.wicket.util.collections.ConcurrentHashSet;
 import org.eclipse.jetty.server.Request;
@@ -92,7 +94,6 @@ public class PushHeaderItem extends HeaderItem
 			{
 				Object object = pushItem.getObject();
 				PageParameters parameters = pushItem.getPageParameters();
-				String suffix = pushItem.getSuffix();
 
 				if (object == null)
 				{
@@ -115,7 +116,9 @@ public class PushHeaderItem extends HeaderItem
 				}
 				else
 				{
-					url = object.toString();
+					Url encoded = new PageParametersEncoder().encodePageParameters(parameters);
+					String queryString = encoded.getQueryString();
+					url = object.toString() + (queryString != null ? "?" + queryString : "");
 				}
 
 				if (url.toString().equals("."))
@@ -125,12 +128,6 @@ public class PushHeaderItem extends HeaderItem
 				else if (url.toString().startsWith("."))
 				{
 					url = url.toString().substring(1);
-				}
-
-				if (suffix != null)
-				{
-					url = url.toString()
-						+ (url.toString().contains("?") ? "&" + suffix : "?" + suffix);
 				}
 
 				urls.add(url.toString());

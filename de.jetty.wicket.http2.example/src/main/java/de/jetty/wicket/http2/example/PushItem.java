@@ -15,8 +15,6 @@ public class PushItem
 
 	private PageParameters pageParameters;
 
-	private String suffix;
-
 	/**
 	 * Creates a push item
 	 * 
@@ -94,28 +92,4 @@ public class PushItem
 		this.pageParameters = pageParameters;
 		return this;
 	}
-
-	/**
-	 * Gets the suffix
-	 * 
-	 * @return the suffix
-	 */
-	public String getSuffix()
-	{
-		return suffix;
-	}
-
-	/**
-	 * Sets the suffix
-	 * 
-	 * @param suffix
-	 *            the suffix
-	 * @return the push item
-	 */
-	public PushItem setSuffix(String suffix)
-	{
-		this.suffix = suffix;
-		return this;
-	}
-
 }
