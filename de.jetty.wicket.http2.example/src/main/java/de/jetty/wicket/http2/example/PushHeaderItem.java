@@ -4,10 +4,13 @@ import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
 
+import javax.servlet.http.HttpServletRequest;
+
 import org.apache.wicket.Page;
 import org.apache.wicket.WicketRuntimeException;
 import org.apache.wicket.markup.head.HeaderItem;
 import org.apache.wicket.request.IRequestHandler;
+import org.apache.wicket.request.Request;
 import org.apache.wicket.request.Response;
 import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.RequestCycle;
@@ -15,14 +18,10 @@ import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.apache.wicket.request.mapper.parameter.PageParametersEncoder;
 import org.apache.wicket.request.resource.ResourceReference;
 import org.apache.wicket.util.collections.ConcurrentHashSet;
-import org.eclipse.jetty.server.Request;
 
 /**
  * A push header item to be used in the http/2 context and to reduce the latency of the web
  * application
- * 
- * TODO org.eclipse.jetty.server.Request has to be replaced with the final javax.servlet.api
- * interface (HttpServletRequest)
  * 
  * @author Tobias Soloschenko
  *
@@ -66,13 +65,17 @@ public class PushHeaderItem extends HeaderItem
 	@Override
 	public void render(Response response)
 	{
-		Request request = getContainerRequest(RequestCycle.get().getRequest());
+		HttpServletRequest request = getContainerRequest(RequestCycle.get().getRequest());
 		// Check if the protocol is http/2 or http/2.0 to only push the resources in this case
 		if (isHttp2(request))
 		{
 			for (String url : urls)
 			{
-				request.getPushBuilder().path(url.toString()).push();
+				// TODO Jetty has to switch to the javax.servlet-api classes and handle
+				// SETTINGS_ENABLE_PUSH settings frame value and implement the default API against
+				// it.
+				org.eclipse.jetty.server.Request.getBaseRequest(request).getPushBuilder()
+				    .path(url.toString()).push();
 			}
 		}
 	}
@@ -98,7 +101,7 @@ public class PushHeaderItem extends HeaderItem
 				if (object == null)
 				{
 					throw new WicketRuntimeException(
-						"Please provide an object to the items to be pushed, so that the url can be created for the given resource.");
+					    "Please provide an object to the items to be pushed, so that the url can be created for the given resource.");
 				}
 
 				CharSequence url = null;
@@ -142,10 +145,10 @@ public class PushHeaderItem extends HeaderItem
 	 *            the wicket request to get the container request from
 	 * @return the container request
 	 */
-	public Request getContainerRequest(org.apache.wicket.request.Request request)
+	public HttpServletRequest getContainerRequest(Request request)
 	{
 
-		return (Request)request.getContainerRequest();
+		return checkHttpServletRequest(request);
 	}
 
 	/**
@@ -155,9 +158,33 @@ public class PushHeaderItem extends HeaderItem
 	 *            the request to check if it is a http/2 request
 	 * @return if the request is a http/2 request
 	 */
-	public boolean isHttp2(Request request)
+	public boolean isHttp2(HttpServletRequest request)
 	{
 		// detects http/2 and http/2.0
 		return request.getProtocol().toLowerCase().contains(HTTP2_PROTOCOL);
+	}
+
+	/**
+	 * Checks if the container request from the given request is instance of
+	 * {@link HttpServletRequest} if not the API of the PushHeaderItem can't be used and a
+	 * {@link WicketRuntimeException} is thrown.
+	 * 
+	 * @param request
+	 *            the request to get the container request from. The container request is checked if it
+	 *            is instance of {@link HttpServletRequest}
+	 * @return the container request get from the given request casted to {@link HttpServletRequest}
+	 * @throw {@link WicketRuntimeException} if the container request is not a
+	 *        {@link HttpServletRequest}
+	 */
+	public HttpServletRequest checkHttpServletRequest(Request request)
+	{
+		Object assumedHttpServletRequest = request.getContainerRequest();
+		if (!(assumedHttpServletRequest instanceof HttpServletRequest))
+		{
+			throw new WicketRuntimeException(
+			    "The request is not a HttpServletRequest - the usage of PushHeaderItem is not support in the current environment: "
+			        + request.getClass().getName());
+		}
+		return (HttpServletRequest)assumedHttpServletRequest;
 	}
 }
