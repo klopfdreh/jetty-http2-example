@@ -1,5 +1,10 @@
 package de.jetty.wicket.http2.example;
 
+import java.io.IOException;
+import java.net.URL;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -9,15 +14,19 @@ import javax.servlet.http.HttpServletRequest;
 import org.apache.wicket.Page;
 import org.apache.wicket.WicketRuntimeException;
 import org.apache.wicket.markup.head.HeaderItem;
+import org.apache.wicket.markup.html.WebPage;
 import org.apache.wicket.request.IRequestHandler;
 import org.apache.wicket.request.Request;
 import org.apache.wicket.request.Response;
 import org.apache.wicket.request.Url;
 import org.apache.wicket.request.cycle.RequestCycle;
+import org.apache.wicket.request.http.WebRequest;
+import org.apache.wicket.request.http.WebResponse;
 import org.apache.wicket.request.mapper.parameter.PageParameters;
 import org.apache.wicket.request.mapper.parameter.PageParametersEncoder;
 import org.apache.wicket.request.resource.ResourceReference;
 import org.apache.wicket.util.collections.ConcurrentHashSet;
+import org.apache.wicket.util.time.Time;
 
 /**
  * A push header item to be used in the http/2 context and to reduce the latency of the web
@@ -29,6 +38,9 @@ import org.apache.wicket.util.collections.ConcurrentHashSet;
 public class PushHeaderItem extends HeaderItem
 {
 	private static final long serialVersionUID = 1L;
+
+	private static final SimpleDateFormat headerDateFormat = new SimpleDateFormat(
+	    "EEE, dd MMM yyyy HH:mm:ss zzz");
 
 	/**
 	 * The http2 protocol string
@@ -46,6 +58,37 @@ public class PushHeaderItem extends HeaderItem
 	private Set<String> urls = new ConcurrentHashSet<String>(new TreeSet<String>());
 
 	/**
+	 * The web response of the page to apply the caching information to
+	 */
+	private WebResponse pageWebResponse;
+
+	/**
+	 * The web request of the page to get the caching information from
+	 */
+	private WebRequest pageWebRequest;
+
+	/**
+	 * The page to get the modification time of
+	 */
+	private Page page;
+
+
+	public PushHeaderItem(Page page, Response pageResponse, Request pageRequest)
+	{
+		if (page == null || !(page instanceof WebPage) || pageResponse == null
+		    || !(pageResponse instanceof WebResponse))
+		{
+			throw new WicketRuntimeException(
+			    "Please hand over the web page, the web response and the web request to the push header item like \"new PushHeaderItem(this, yourWebPageReponse, yourWebPageRequest)\" - "
+			        + "The webPageResponse / webPageRequest can be obtained via \"getRequestCycle().getResponse()\" and placed into the page as field "
+			        + "\"private transient Response webPageResponse;\" / \"private transient Request webPageRequest;\"");
+		}
+		this.pageWebResponse = (WebResponse)pageResponse;
+		this.pageWebRequest = (WebRequest)pageRequest;
+		this.page = page;
+	}
+
+	/**
 	 * Uses the URLs that has already been pushed to the client to ensure not to push them again
 	 */
 	@Override
@@ -60,22 +103,92 @@ public class PushHeaderItem extends HeaderItem
 	}
 
 	/**
+	 * Gets the time the page has been modified
+	 * 
+	 * @return the time the page has been modified
+	 */
+	private Time getPageModificationTime()
+	{
+		URL resource = page.getClass().getResource(page.getClass().getSimpleName() + ".html");
+		if (resource == null)
+		{
+			throw new WicketRuntimeException(
+			    "The markup to the page couldn't be found: " + page.getClass().getName());
+		}
+		try
+		{
+			return Time.valueOf(new Date(resource.openConnection().getLastModified()));
+		}
+		catch (IOException e)
+		{
+			throw new WicketRuntimeException(
+			    "The time couln't be determined of the markup file of the page: "
+			        + page.getClass().getName(),
+			    e);
+		}
+	}
+
+	/**
+	 * Applies the cache header item to the response
+	 */
+	private void applyPageCacheHeader()
+	{
+		Time pageModificationTime = getPageModificationTime();
+		// check modification of page html
+		pageWebResponse.setLastModifiedTime(pageModificationTime);
+		pageWebResponse.setDateHeader("Expires", pageModificationTime);
+		pageWebResponse.setHeader("Cache-Control",
+		    "max-age=31536000, public, must-revalidate, proxy-revalidate");
+		pageWebResponse.setHeader("Pragma", "public");
+	}
+
+	/**
 	 * Pushes the previously created URLs to the client
 	 */
 	@Override
 	public void render(Response response)
 	{
+
+		// applies
+		applyPageCacheHeader();
+
 		HttpServletRequest request = getContainerRequest(RequestCycle.get().getRequest());
 		// Check if the protocol is http/2 or http/2.0 to only push the resources in this case
 		if (isHttp2(request))
 		{
+
 			for (String url : urls)
 			{
 				// TODO Jetty has to switch to the javax.servlet-api classes and handle
 				// SETTINGS_ENABLE_PUSH settings frame value and implement the default API against
 				// it.
-				org.eclipse.jetty.server.Request.getBaseRequest(request).getPushBuilder()
-				    .path(url.toString()).push();
+				try
+				{
+					Time pageModificationTime = getPageModificationTime();
+					String ifModifiedSinceHeader = pageWebRequest.getHeader("If-Modified-Since");
+
+					if (ifModifiedSinceHeader != null)
+					{
+						Time ifModifiedSinceFromRequestTime = Time
+						    .valueOf(headerDateFormat.parse(ifModifiedSinceHeader));
+						// If the client modification time is before the page modification time -
+						// don't push
+						if (ifModifiedSinceFromRequestTime.before(pageModificationTime))
+						{
+							org.eclipse.jetty.server.Request.getBaseRequest(request)
+							    .getPushBuilder().path(url.toString()).push();
+						}
+					}
+					else
+					{
+						org.eclipse.jetty.server.Request.getBaseRequest(request).getPushBuilder()
+						    .path(url.toString()).push();
+					}
+				}
+				catch (ParseException e)
+				{
+					e.printStackTrace();
+				}
 			}
 		}
 	}
@@ -170,8 +283,8 @@ public class PushHeaderItem extends HeaderItem
 	 * {@link WicketRuntimeException} is thrown.
 	 * 
 	 * @param request
-	 *            the request to get the container request from. The container request is checked if it
-	 *            is instance of {@link HttpServletRequest}
+	 *            the request to get the container request from. The container request is checked if
+	 *            it is instance of {@link HttpServletRequest}
 	 * @return the container request get from the given request casted to {@link HttpServletRequest}
 	 * @throw {@link WicketRuntimeException} if the container request is not a
 	 *        {@link HttpServletRequest}
